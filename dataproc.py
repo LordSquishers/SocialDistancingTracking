@@ -22,6 +22,10 @@ def load_data():
 def calculate_centerpoint(x1, y1, x2, y2): # does what it says on the tin
     return ((x1 + x2) / 2, (y1 + y2) / 2)
 
+ 
+def calculate_bottom_center(x1, y1, x2, y2):
+    return ((x1 + x2) / 2, y2)
+
 
 def process_centers(ID): # gets individual ID box data. converts to np array [frame, x, y]
     single_tracking_data = data[str(ID)]
@@ -29,7 +33,9 @@ def process_centers(ID): # gets individual ID box data. converts to np array [fr
     
     idx = 0
     for frame_data in single_tracking_data:
-        ctr = calculate_centerpoint(frame_data[1], frame_data[2], frame_data[3], frame_data[4])
+        # hey! this variable is named center, but may not actually be the center.
+        # I recommend checking what ctr is equal to instead.
+        ctr = calculate_bottom_center(frame_data[1], frame_data[2], frame_data[3], frame_data[4])
         points[idx][0] = frame_data[0]
         points[idx][1] = ctr[0]
         points[idx][2] = ctr[1]
@@ -38,17 +44,18 @@ def process_centers(ID): # gets individual ID box data. converts to np array [fr
     return points
 
 
-def plot_centerpoints(ID, seperate_graph, res): 
+def plot_centerpoints(ID, show_graphs, res): 
     # takes [frame x, y] which should have been formatted correctly and formats them correctly for pyplot.
     # ignores frame time.
     points = process_centers(ID)
     xs = np.zeros(points.shape[0])
     ys = np.zeros(points.shape[0])
+    x_res, y_res = resolution
     
     idx = 0
     for point in points:
         xs[idx] = point[1]
-        ys[idx] = point[2]
+        ys[idx] = y_res - point[2]
         idx += 1
     
     # webcam res (0, x, 0, y)
@@ -57,8 +64,10 @@ def plot_centerpoints(ID, seperate_graph, res):
     plt.plot(xs, ys, label=ID)
     plt.legend()
     
-    if seperate_graph:
+    if show_graphs:
         plt.show() # creates diff. graphs
+    
+    return (xs, ys)
 
 
 def unique_ids(): # iterates through data file for all dict keys (IDs)
@@ -74,27 +83,36 @@ def unique_ids(): # iterates through data file for all dict keys (IDs)
     return np.array(np.unique(all_ids_present), dtype=np.int16)
 
 
-def plot_ids(IDs, seperate, res): # plots an array of IDs.
+def plot_ids(IDs, show_graphs, res): # plots an array of IDs.
+    all_id_data = list()
     for ID in IDs:
-        plot_centerpoints(ID, seperate, res)
+        all_id_data.append(plot_centerpoints(ID, show_graphs, res))
     
-    if not seperate:
-        plt.show()
+    return all_id_data
 
 
 # In[10]:
 import sys
 
 if len(sys.argv) != 4:
-    print('usage: dataproc.py   res_x [int]   res_y [int]   unique_graphs [bool]')
+    print('usage: dataproc.py   res_x [int]   res_y [int]   show_graphs [bool]')
     sys.exit(2)
 
-unique_graphs = sys.argv[3].lower() == "true"
+show_graphs = sys.argv[3].lower() == "true"
 resolution = (int(sys.argv[1]), int(sys.argv[2]))
 
 data = load_data() # loads data
-plot_ids(unique_ids(), unique_graphs, resolution) # finds all unique tracking IDs and plots them. True = Seperate Graphs, False = Single Graph
+results = plot_ids(unique_ids(), show_graphs, resolution) # finds all unique tracking IDs and plots them. True = Seperate Graphs, False = Single Graph
 
+current_ID = 1
+for result in results:
+    xs, ys = result
+    saved_arr = np.vstack((xs, ys))
+    # print(saved_arr)
+    filename = str(current_ID) + '.csv'
+    np.savetxt('results/' + filename, saved_arr, delimiter=',')
+    print('Saved ' + filename + ' to results/' + filename)
+    current_ID += 1
 
 # In[ ]:
 
