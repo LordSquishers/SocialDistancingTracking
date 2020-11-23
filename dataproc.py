@@ -6,6 +6,8 @@
 
 import matplotlib.pyplot as plt
 import numpy as np
+import time
+import cv2
 from collections import defaultdict
 
 def load_data():
@@ -58,16 +60,16 @@ def plot_centerpoints(ID, show_graphs, res):
         ys[idx] = y_res - point[2]
         idx += 1
     
-    # webcam res (0, x, 0, y)
-    res_x, res_y = res
-    plt.axis([0, res_x, 0, res_y])
-    plt.plot(xs, ys, label=ID)
-    plt.legend()
-    
     if show_graphs:
+        # webcam res (0, x, 0, y)
+        res_x, res_y = res
+        plt.axis([0, res_x, 0, res_y])
+        plt.scatter(xs, ys)#,label=ID)
+        #plt.legend()
+    
         plt.show() # creates diff. graphs
     
-    return (xs, ys)
+    return (xs, ys, ID)
 
 
 def unique_ids(): # iterates through data file for all dict keys (IDs)
@@ -91,31 +93,103 @@ def plot_ids(IDs, show_graphs, res): # plots an array of IDs.
     return all_id_data
 
 
+def map_to_plane(x, y):
+    ### CALIBRATION ###
+    # provide points from image 1
+    pts_src = np.float32([154, 174, 702, 349, 702, 572,1, 572]).reshape(4, 1, -1)
+    # corresponding points from image 2 (i.e. (154, 174) matches (212, 80))
+    pts_dst = np.float32([212, 80,489, 80,505, 180,367, 235]).reshape(4, 1, -1)
+    
+    # calculate matrix H
+    h = cv2.findHomography(pts_src, pts_dst)[0]
+    ### END CALIBRATION ###
+
+    # provide a point you wish to map from image 1 to image 2
+    # print(x, y)
+    a = np.array([[[x, y]]], dtype='float32')
+    # print(a.shape)
+    
+    # finally, get the mapping
+    pointsOut = cv2.perspectiveTransform(a, h)
+    # print(pointsOut)
+    return pointsOut[0][0][0], pointsOut[0][0][1]
+
+def calculate_heatmap(resulting_data):
+    print('calculating heatmap')
+
+    total_entries = 0
+    for entry in resulting_data:
+        x_set, y_set, set_id = entry # a set of xs, ys, and ID for each person in a frame
+        total_entries += len(x_set)
+
+    print(str(total_entries) + ' entries')
+    x_data = np.zeros((total_entries))
+    y_data = np.zeros((total_entries))
+
+    # print(x_data.shape)
+
+    i = 0
+    for result in resulting_data:
+        x_points, y_points, person_id = result
+        
+        j = 0
+        for x in x_points:
+            #x_mapped, y_mapped = map_to_plane(x, y_points[j])
+            x_mapped = x
+            y_mapped = int(sys.argv[3]) - y_points[j] # FLIP Y
+            # print(x_mapped)
+            # print(y_mapped)
+            x_data[i] = x_mapped
+            y_data[i] = y_mapped
+            i += 1
+            j += 1
+
+    #print(x_data)
+    # call the kernel density estimator function
+    #ax = sns.kdeplot(x_data, y_data, cmap="Blues", shade=True, shade_lowest=False)
+    # the function has additional parameters you can play around with to fine-tune your heatmap, e.g.:
+    ax = sns.kdeplot(x_data, y_data, kernel="gau", bw = 25, cmap="Reds", n_levels = 50, shade=True, shade_lowest=False, gridsize=100)
+    
+    # plot your KDE
+    ax.set_frame_on(False)
+    plt.xlim(0, 704)
+    plt.ylim(576, 0)
+    plt.axis('off')
+    #ax.get_legend().remove()
+    plt.show()
+    print('showing')
+    
+    # save your KDE to disk
+    fig = ax.get_figure()
+    fig.savefig('kde.png', transparent=True, bbox_inches='tight', pad_inches=0)
+
+
 # In[10]:
 import sys
+import seaborn as sns
+from scipy import stats, integrate
 
-if len(sys.argv) != 4:
-    print('usage: dataproc.py   res_x [int]   res_y [int]   show_graphs [bool]')
+heatmap = False
+if len(sys.argv) == 5:
+    if(sys.argv[1]) == 'heatmap':
+        heatmap = True
+else:
+    print('usage: dataproc.py  heatmap? [heatmap]    res_x [int]   res_y [int]   graphs [bool]')
     sys.exit(2)
 
-show_graphs = sys.argv[3].lower() == "true"
-resolution = (int(sys.argv[1]), int(sys.argv[2]))
+unique_graphs = sys.argv[4].lower() == "true"
+resolution = (int(sys.argv[2]), int(sys.argv[3]))
 
 data = load_data() # loads data
-results = plot_ids(unique_ids(), show_graphs, resolution) # finds all unique tracking IDs and plots them. True = Seperate Graphs, False = Single Graph
+results = plot_ids(unique_ids(), unique_graphs, resolution) # finds all unique tracking IDs and plots them. True = Seperate Graphs, False = Single Graph
 
-current_ID = 1
-for result in results:
-    xs, ys = result
-    saved_arr = np.vstack((xs, ys))
-    # print(saved_arr)
-    filename = str(current_ID) + '.csv'
-    np.savetxt('results/' + filename, saved_arr, delimiter=',')
-    print('Saved ' + filename + ' to results/' + filename)
-    current_ID += 1
+calculate_heatmap(results)
 
-# In[ ]:
-
-
-
-
+if not heatmap :
+    for result in results:
+        xs, ys, ID = result
+        saved_arr = np.vstack((xs, ys))
+        # print(saved_arr)
+        filename = str(ID) + '.csv'
+        np.savetxt('results/' + filename, saved_arr, delimiter=',')
+        print('Saved ' + filename + ' to results/' + filename)
